@@ -4,7 +4,7 @@ pipeline {
     environment {
         IMAGE_NAME = "tetris-frontend"
         SONAR_PROJECT_KEY = "tetris-frontend"
-        SONAR_HOST_URL = "http://localhost:9000"
+        SONAR_HOST_URL = "http://sonarqube:9000"
         NEXUS_DOCKER_REGISTRY = "nexus:8081"
     }
 
@@ -25,7 +25,7 @@ pipeline {
                     sonarsource/sonar-scanner-cli \
                     -Dsonar.projectKey=tetris-frontend \
                     -Dsonar.sources=src \
-                    -Dsonar.host.url=http://localhost:9000 \
+                    -Dsonar.host.url=http://sonarqube:9000 \
                     -Dsonar.login=$SONAR_TOKEN
                 '''
                 }
