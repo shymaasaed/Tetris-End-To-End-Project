@@ -1,56 +1,115 @@
 pipeline {
     agent any
 
+    // ---------------------
+    // ENVIRONMENT SETTINGS
+    // ---------------------
     environment {
-        IMAGE_NAME = "tetris-frontend"
+        APP_NAME = "tetris-frontend"
+        BUILD_OUTPUT = "frontend-build"
+
+        SONAR_HOST = "http://127.0.0.1:9000"
         SONAR_PROJECT_KEY = "tetris-frontend"
-        SONAR_HOST_URL = "http://sonarqube:9000"
-        NEXUS_DOCKER_REGISTRY = "nexus:8081"
+
+        NEXUS_REGISTRY = "127.0.0.1:8081"   // nexus docker registry
+        DOCKERHUB_REGISTRY = "docker.io"
+
+        // versioning
+        IMAGE_VERSION = "${APP_NAME}:${BUILD_NUMBER}"
     }
 
     stages {
 
+        // ====================================
+        // 1️⃣ CHECKOUT CODE
+        // ====================================
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
+        // ====================================
+        // 2️⃣ BUILD (Node 14 React Build)
+        // ====================================
+        stage('Build Artifacts') {
+            steps {
+                sh '''
+                  cd frontend
+                  npm install
+                  npm run build
+                  mkdir -p ../${BUILD_OUTPUT}
+                  cp -r build ../${BUILD_OUTPUT}/
+                '''
+            }
+        }
+
+        // ====================================
+        // 3️⃣ SONARQUBE ANALYSIS
+        // ====================================
         stage('SonarQube Analysis') {
             steps {
                 withCredentials([string(credentialsId: 'sonar-creds', variable: 'SONAR_TOKEN')]) {
-                sh '''
-                docker run --rm \
-                    -v $(pwd):/usr/src \
-                    sonarsource/sonar-scanner-cli \
-                    -Dsonar.projectKey=tetris-frontend \
-                    -Dsonar.sources=src \
-                    -Dsonar.host.url=http://sonarqube:9000 \
-                    -Dsonar.login=$SONAR_TOKEN
-                '''
+                    sh '''
+                    docker run --rm \
+                      --network host \
+                      -v $(pwd)/${BUILD_OUTPUT}:/usr/src \
+                      sonarsource/sonar-scanner-cli \
+                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                      -Dsonar.sources=/usr/src/build \
+                      -Dsonar.host.url=${SONAR_HOST} \
+                      -Dsonar.login=$SONAR_TOKEN
+                    '''
                 }
             }
         }
 
+        // ====================================
+        // 4️⃣ PUSH ARTIFACTS TO NEXUS
+        // ====================================
+        stage('Push Artifacts to Nexus') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'nexus-creds',
+                                  usernameVariable: 'NEXUS_USER',
+                                  passwordVariable: 'NEXUS_PASS')]) {
+                    sh '''
+                    # Example Nexus Upload - adjust repo/path as needed
+                    curl -u $NEXUS_USER:$NEXUS_PASS \
+                         -X POST "${NEXUS_REGISTRY}/repository/npm-hosted/" \
+                         -F "npm.pack=@./${BUILD_OUTPUT}/build"
+                    '''
+                }
+            }
+        }
+
+        // ====================================
+        // 5️⃣ DOCKER IMAGE BUILD
+        // ====================================
         stage('Docker Build') {
             steps {
                 sh '''
-                  docker build -t $IMAGE_NAME:latest .
+                  docker build -t ${IMAGE_VERSION} -f frontend/Dockerfile .
                 '''
             }
         }
 
-        stage('Trivy Image Scan (soft)') {
+        // ====================================
+        // 6️⃣ TRIVY VULN SCAN (soft report)
+        // ====================================
+        stage('Trivy Image Scan') {
             steps {
                 sh '''
-                  trivy image $IMAGE_NAME:latest \
+                  trivy image ${IMAGE_VERSION} \
                     --format table \
                     --output trivy-report.txt || true
                 '''
             }
         }
 
-        stage('OWASP Dependency Check (soft)') {
+        // ====================================
+        // 7️⃣ OWASP DEPENDENCY CHECK (soft)
+        // ====================================
+        stage('OWASP Dependency Check') {
             steps {
                 sh '''
                   dependency-check.sh \
@@ -61,22 +120,26 @@ pipeline {
             }
         }
 
-        stage('Push Image to Nexus') {
+        // ====================================
+        // 8️⃣ DOCKER PUSH → DOCKER HUB
+        // ====================================
+        stage('Docker Push to Hub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'nexus-creds',
-                        usernameVariable: 'NEXUS_USER',
-                        passwordVariable: 'NEXUS_PASS')]) {
-
+                withCredentials([usernamePassword(credentialsId: 'shymaa145',
+                                  usernameVariable: 'DOCKERHUB_USER',
+                                  passwordVariable: 'DOCKERHUB_PASS')]) {
                     sh '''
-                      docker login $NEXUS_DOCKER_REGISTRY -u $NEXUS_USER -p $NEXUS_PASS
-
-                      docker tag $IMAGE_NAME:latest $NEXUS_DOCKER_REGISTRY/$IMAGE_NAME:${BUILD_NUMBER}
-                      docker push $NEXUS_DOCKER_REGISTRY/$IMAGE_NAME:${BUILD_NUMBER}
+                      docker login ${DOCKERHUB_REGISTRY} -u $DOCKERHUB_USER -p $DOCKERHUB_PASS
+                      docker tag ${IMAGE_VERSION} ${DOCKERHUB_REGISTRY}/${IMAGE_VERSION}
+                      docker push ${DOCKERHUB_REGISTRY}/${IMAGE_VERSION}
                     '''
                 }
             }
         }
 
+        // ====================================
+        // 9️⃣ ARCHIVE REPORTS
+        // ====================================
         stage('Archive Reports') {
             steps {
                 archiveArtifacts artifacts: 'trivy-report.txt, owasp-report/**', fingerprint: true
@@ -84,9 +147,12 @@ pipeline {
         }
     }
 
+    // ----------------------
+    // ALWAYS RUN POST PHASE
+    // ----------------------
     post {
         always {
-            echo "Pipeline finished (soft mode – no stage blocks the flow)"
+            echo "Pipeline Finished"
         }
     }
 }
