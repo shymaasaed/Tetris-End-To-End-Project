@@ -1,0 +1,90 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "tetris-frontend"
+        SONAR_PROJECT_KEY = "tetris-frontend"
+        SONAR_HOST_URL = "http://localhost:9000"
+        NEXUS_DOCKER_REGISTRY = "nexus:8081"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    sh '''
+                      sonar-scanner \
+                        -Dsonar.projectKey=$SONAR_PROJECT_KEY \
+                        -Dsonar.sources=src \
+                        -Dsonar.host.url=$SONAR_HOST_URL \
+                        -Dsonar.login=$SONAR_TOKEN
+                    '''
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh '''
+                  docker build -t $IMAGE_NAME:latest .
+                '''
+            }
+        }
+
+        stage('Trivy Image Scan (soft)') {
+            steps {
+                sh '''
+                  trivy image $IMAGE_NAME:latest \
+                    --format table \
+                    --output trivy-report.txt || true
+                '''
+            }
+        }
+
+        stage('OWASP Dependency Check (soft)') {
+            steps {
+                sh '''
+                  dependency-check.sh \
+                    --scan . \
+                    --format HTML \
+                    --out owasp-report || true
+                '''
+            }
+        }
+
+        stage('Push Image to Nexus') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'nexus-creds',
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASS')]) {
+
+                    sh '''
+                      docker login $NEXUS_DOCKER_REGISTRY -u $NEXUS_USER -p $NEXUS_PASS
+
+                      docker tag $IMAGE_NAME:latest $NEXUS_DOCKER_REGISTRY/$IMAGE_NAME:${BUILD_NUMBER}
+                      docker push $NEXUS_DOCKER_REGISTRY/$IMAGE_NAME:${BUILD_NUMBER}
+                    '''
+                }
+            }
+        }
+
+        stage('Archive Reports') {
+            steps {
+                archiveArtifacts artifacts: 'trivy-report.txt, owasp-report/**', fingerprint: true
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "Pipeline finished (soft mode – no stage blocks the flow)"
+        }
+    }
+}
