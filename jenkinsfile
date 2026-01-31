@@ -35,7 +35,6 @@ pipeline {
         stage('Build Artifacts') {
             steps {
                 sh '''
-                  cd frontend
                   npm install
                   npm run build
                   mkdir -p ../${BUILD_OUTPUT}
@@ -88,7 +87,7 @@ pipeline {
         stage('Docker Build') {
             steps {
                 sh '''
-                  docker build -t ${IMAGE_VERSION} -f frontend/Dockerfile .
+                  docker build -t ${IMAGE_VERSION} Dockerfile .
                 '''
             }
         }
