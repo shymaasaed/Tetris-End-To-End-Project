@@ -18,13 +18,6 @@ pipeline {
         // =====================
         // Checkout
         // =====================
-        stage('Checkout') {
-            steps {
-                git branch: 'back',
-                    credentialsId: 'Creds-git',
-                    url: 'https://github.com/shymaasaed/Tetris-End-To-End-Project'
-            }
-        }
 
         // =====================
         // Build Backend
