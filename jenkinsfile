@@ -16,10 +16,6 @@ pipeline {
     stages {
 
         // =====================
-        // Checkout
-        // =====================
-
-        // =====================
         // Build Backend
         // =====================
         stage('Build Backend') {
@@ -35,7 +31,9 @@ pipeline {
 
                 rm -rf ${BUILD_DIR}
                 mkdir -p ${BUILD_DIR}
-                cp -r . ${BUILD_DIR}/
+
+                # copy only needed backend files (avoid copying workspace into itself)
+                cp Dockerfile package.json server.js -r node_modules ${BUILD_DIR}/
                 '''
             }
         }
