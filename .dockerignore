@@ -1,0 +1,10 @@
+.git
+node_modules
+npm-debug.log
+Dockerfile
+jenkinsfile
+README.md
+stress.js
+test
+owasp-report
+*.zip
