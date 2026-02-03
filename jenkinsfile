@@ -8,9 +8,12 @@ pipeline {
     SONAR_HOST = "http://51.20.189.19:9000"
     SONAR_PROJECT_KEY = "tetris-backend"
 
-    IMAGE_NAME = "shymaa145/tetris-backend"
+    IMAGE_NAME = "tetris-backend"
     IMAGE_TAG = "${BUILD_NUMBER}"
     FULL_IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
+
+    AWS_REGION = "us-east-1"
+    ECR_REPO = "101561167685.dkr.ecr.us-east-1.amazonaws.com/tetris-backend"
   }
 
   stages {
@@ -22,13 +25,10 @@ pipeline {
           -v $PWD:/app \
           -w /app \
           node:18-alpine \
-          sh -c "
-            npm install
-          "
+          sh -c "npm install"
 
         rm -rf ${BUILD_DIR}
         mkdir -p ${BUILD_DIR}
-
         cp Dockerfile package.json server.js -r node_modules ${BUILD_DIR}/
         '''
       }
@@ -39,7 +39,6 @@ pipeline {
         withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_KEY')]) {
           sh '''
           mkdir -p owasp-report
-
           docker run --rm \
             -v $WORKSPACE:/src \
             -v odc-data:/usr/share/dependency-check/data \
@@ -103,19 +102,15 @@ pipeline {
       }
     }
 
-    stage('Docker Push') {
+    stage('Push to AWS ECR') {
       steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'shymaa145',
-          usernameVariable: 'DOCKER_USER',
-          passwordVariable: 'DOCKER_PASS'
-        )]) {
+        sh '''
+        aws ecr get-login-password --region $AWS_REGION | \
+          docker login --username AWS --password-stdin $ECR_REPO
 
-          sh '''
-          docker login -u $DOCKER_USER -p $DOCKER_PASS
-          docker push ${FULL_IMAGE}
-          '''
-        }
+        docker tag ${FULL_IMAGE} ${ECR_REPO}:${BUILD_NUMBER}
+        docker push ${ECR_REPO}:${BUILD_NUMBER}
+        '''
       }
     }
 
